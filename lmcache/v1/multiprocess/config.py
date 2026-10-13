@@ -143,6 +143,11 @@ class MPServerConfig:
     kv_event_log_size: int = 32768
     """CPU store/eviction records retained for KV-event subscribers; 0 disables it."""
 
+    skip_apc_lookup: bool = False
+    """Skip lookup/read-lock/L2-prefetch of the prefix the serving engine's own
+    prefix cache already covers, touching it instead. Advertised to clients as a
+    capability; engines only send a covered count when the server advertises it."""
+
     null_block_id: int = 0
     """Engine block ID that denotes absent KV data. The default ``0`` keeps
     compatibility with vLLM; engines where block zero is valid can select a
@@ -566,6 +571,14 @@ def add_mp_server_args(
         "0 disables the channel. Default is %(default)s.",
     )
     mp_group.add_argument(
+        "--skip-apc-lookup",
+        action="store_true",
+        default=MPServerConfig.skip_apc_lookup,
+        help="Skip lookup/read-lock/L2-prefetch of the prefix the serving "
+        "engine's prefix cache already covers; the covered keys are only "
+        "LRU-touched. Default is %(default)s.",
+    )
+    mp_group.add_argument(
         "--server-module",
         action="append",
         default=[],
@@ -629,6 +642,7 @@ def parse_args_to_mp_server_config(
         worker_registration_grace_seconds=args.worker_registration_grace_seconds,
         enable=args.enable or [],
         kv_event_log_size=args.kv_event_log_size,
+        skip_apc_lookup=args.skip_apc_lookup,
         server_modules=parse_server_module_specs(args.server_module or []),
     )
 

@@ -202,6 +202,14 @@ Source: ``lmcache/v1/multiprocess/config.py``
      - ``--engine-type blend`` only: skip fingerprint registration for a chunk
        whose content is already indexed, so the same text stored behind two
        prefixes is indexed once. No effect for other engines.
+   * - ``--skip-apc-lookup``
+     - ``False``
+     - Skip lookup, read-lock, and L2 prefetch of the prefix vLLM's own
+       prefix cache already holds; those keys are only LRU-touched, which
+       frees L1 for data that is actually retrieved. Cache contents are
+       unchanged. The engine must also set
+       ``lmcache.mp.skip_covered_lookup``; with either side off, lookups
+       behave exactly as before.
    * - ``--separate-object-groups`` / ``--no-separate-object-groups``
      - ``False``
      - Split a hybrid model's kernel groups into one object group per

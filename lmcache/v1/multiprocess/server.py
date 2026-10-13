@@ -216,7 +216,7 @@ def _build_server_components(
         ValueError: If blend engine is requested with
         supported_transfer_mode="engine_driven".
     """
-    lookup_module = LookupModule(ctx)
+    lookup_module = LookupModule(ctx, skip_apc_lookup=mp_config.skip_apc_lookup)
     p2p_controller = P2PController(
         ctx,
         mp_config.p2p_config,
