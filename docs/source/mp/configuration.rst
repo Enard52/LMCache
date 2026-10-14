@@ -205,10 +205,7 @@ Source: ``lmcache/v1/multiprocess/config.py``
    * - ``--skip-apc-lookup``
      - ``False``
      - Skip lookup, read-lock, and L2 prefetch of the prefix vLLM's own
-       prefix cache already holds; those keys are only LRU-touched, which
-       frees L1 for data that is actually retrieved. Cache contents are
-       unchanged. The server advertises this to connected engines, which
-       enable the optimization on their own; no vLLM-side setting is needed.
+       prefix cache already holds.
    * - ``--separate-object-groups`` / ``--no-separate-object-groups``
      - ``False``
      - Split a hybrid model's kernel groups into one object group per
