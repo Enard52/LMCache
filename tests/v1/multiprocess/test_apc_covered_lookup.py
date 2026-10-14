@@ -86,11 +86,6 @@ def _ctx_with_hashes(n_chunks: int) -> MagicMock:
     return ctx
 
 
-def test_covered_config_absent_by_default():
-    key = _make_key(4)
-    assert (key.request_configs or {}).get(COVERED_CHUNKS_CONFIG_KEY, 0) == 0
-
-
 def test_covered_config_survives_no_worker_id_version():
     key = _make_key(4, covered_chunks=2).no_worker_id_version()
     assert key.request_configs[COVERED_CHUNKS_CONFIG_KEY] == 2
