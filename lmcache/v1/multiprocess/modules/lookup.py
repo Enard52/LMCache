@@ -288,7 +288,9 @@ class LookupModule:
             if self._skip_apc_lookup
             else 0
         )
-        covered_chunks = min(max(0, requested_covered), len(chunk_hashes))
+        # Leave one chunk for the prefetch so there is always a sub-range;
+        # an all-covered request then re-fetches a single covered chunk.
+        covered_chunks = min(max(0, requested_covered), len(chunk_hashes) - 1)
         if covered_chunks:
             self._ctx.storage_manager.touch_cached_keys(
                 [
@@ -335,30 +337,8 @@ class LookupModule:
             )
             return
 
-        # Prefetch only the uncovered sub-range; status offsets hits back to absolute.
+        # Prefetch only the uncovered sub-range; status offsets hits to absolute.
         sub_hashes = chunk_hashes[covered_chunks:]
-        if not sub_hashes:
-            # Fully covered by APC: report the covered prefix as the hit via the offset.
-            self._register_prefetch_job(
-                _PrefetchJob(
-                    handle=PrefetchHandle(
-                        prefetch_request_id=-1,
-                        external_request_id=key.request_id,
-                        total_requested_keys=0,
-                        submit_time=time.monotonic(),
-                    ),
-                    row_windows=(),
-                    request_id=key.request_id,
-                    requested_tokens=requested_tokens,
-                    num_object_groups=attn_desc.num_object_groups,
-                    attn_desc=attn_desc,
-                    covered_chunks=covered_chunks,
-                    model_name=model_name,
-                    cache_salt=key.cache_salt,
-                    early_exit_reason="fully_covered",
-                )
-            )
-            return
 
         spec = PrefetchTaskSpec(
             key_groups=ipc_key_to_grouped_object_keys(

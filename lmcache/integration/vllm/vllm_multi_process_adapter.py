@@ -883,11 +883,9 @@ class LMCacheMPSchedulerAdapter:
                 prefetch them. 0 disables the optimization for this request.
 
         Returns:
-            The ``covered_chunks`` actually sent, clamped to the aligned lookup
-            range, or ``None`` when no LOOKUP was sent (unhealthy, or one is
-            already in flight). Callers must key any per-lookup state off this
-            value rather than off what they passed in, so their view of the
-            covered boundary cannot drift from the server's.
+            The ``covered_chunks`` actually sent, clamped to the aligned range,
+            or ``None`` when no LOOKUP went out. Key per-lookup state off this,
+            not off what was passed in, so it cannot drift from the server's.
 
         Notes:
             This function will have a side-effect: submitting a look up request to
@@ -1198,9 +1196,8 @@ class LMCacheMPSchedulerAdapter:
                 the IPC key.
 
         Returns:
-            Per-server-url release futures (empty when unhealthy). Callers that
-            do not need to wait may ignore them; ``free_lookup_locks_blocking``
-            awaits them.
+            Per-server-url release futures, empty when unhealthy. Only
+            ``free_lookup_locks_blocking`` awaits them.
         """
         if not self.is_healthy:
             return {}
@@ -1230,11 +1227,10 @@ class LMCacheMPSchedulerAdapter:
     ) -> None:
         """Like ``free_lookup_locks``, but blocks until every server has acked.
 
-        The covered-lookup shrink path must release the stale locks before it
-        submits the replacement lookup for the same request; a fire-and-forget
-        release can be reordered after the replacement's ``begin_lookup`` when
-        ``max_cpu_workers > 1`` (both share the normal thread pool). Args mirror
-        ``free_lookup_locks``.
+        The shrink path must release stale locks before submitting the
+        replacement lookup: both RPCs share the normal thread pool, so a
+        fire-and-forget release can land after the replacement's
+        ``begin_lookup``. Args mirror ``free_lookup_locks``.
         """
         futures = self.free_lookup_locks(
             token_ids, start, end, request_id, cache_salt, request_configs
