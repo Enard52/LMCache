@@ -285,16 +285,14 @@ def _shrink_connector(skip_enabled: bool = True):
 
 
 @requires_vllm
-def test_shrink_frees_stale_locks_blocking_and_goes_sticky():
+def test_shrink_parks_the_stale_lock_release_and_goes_sticky():
     """A shrink must release the stale locks and never skip again.
 
     The replacement lookup re-locks the overlap, so the stale ``[c0, ret)``
     locks have to go first or their refcount leaks -- and read locks are
     shared across prefix-sharing requests, so a leak corrupts other requests.
-    The release must be the blocking variant: ``LOOKUP`` and
-    ``FREE_LOOKUP_LOCKS`` share the normal thread pool, so a fire-and-forget
-    release can land after the replacement's ``begin_lookup`` has already
-    reset the session state.
+    The release futures are parked on the tracker so the next poll can order
+    the replacement after them without blocking the scheduler thread.
     """
     cls, connector, adapter, request, tracker = _shrink_connector()
     adapter.check_lookup_result.return_value = 6 * CHUNK_SIZE
@@ -308,10 +306,11 @@ def test_shrink_frees_stale_locks_blocking_and_goes_sticky():
     # Scheduler is told to re-poll rather than given a hit length.
     assert result == (None, True)
     # Released through the blocking variant, over the whole hit range.
-    adapter.free_lookup_locks_blocking.assert_called_once()
-    assert adapter.free_lookup_locks_blocking.call_args.kwargs["start"] == 0
-    assert adapter.free_lookup_locks_blocking.call_args.kwargs["end"] == 6 * CHUNK_SIZE
-    adapter.free_lookup_locks.assert_not_called()
+    adapter.free_lookup_locks.assert_called_once()
+    assert adapter.free_lookup_locks.call_args.kwargs["start"] == 0
+    assert adapter.free_lookup_locks.call_args.kwargs["end"] == 6 * CHUNK_SIZE
+    # Parked for the next poll to wait on, not awaited here.
+    assert tracker.pending_lock_frees is adapter.free_lookup_locks.return_value
     adapter.cleanup_lookup_result.assert_called_once_with(request.request_id)
     # Sticky, so a second shrink cannot recur for this request.
     assert tracker.covered_skip_disabled is True
@@ -331,7 +330,7 @@ def test_no_shrink_when_apc_hit_still_covers_the_boundary():
     tracker.num_vllm_hit_tokens = 4 * CHUNK_SIZE  # exactly at the boundary
 
     assert cls._handle_covered_shrink(connector, request, tracker) is None
-    adapter.free_lookup_locks_blocking.assert_not_called()
+    adapter.free_lookup_locks.assert_not_called()
     assert tracker.covered_skip_disabled is False
     assert tracker.lookup_covered_tokens == 4 * CHUNK_SIZE
 
@@ -350,7 +349,7 @@ def test_shrink_is_inert_when_the_skip_is_disabled():
     tracker.num_vllm_hit_tokens = 0  # would be a shrink if the flag were on
 
     assert cls._handle_covered_shrink(connector, request, tracker) is None
-    adapter.free_lookup_locks_blocking.assert_not_called()
+    adapter.free_lookup_locks.assert_not_called()
 
     # Same once the request has already fallen back: boundary reset to 0.
     cls2, connector2, adapter2, request2, tracker2 = _shrink_connector()
@@ -360,7 +359,7 @@ def test_shrink_is_inert_when_the_skip_is_disabled():
     tracker2.num_vllm_hit_tokens = 0
 
     assert cls2._handle_covered_shrink(connector2, request2, tracker2) is None
-    adapter2.free_lookup_locks_blocking.assert_not_called()
+    adapter2.free_lookup_locks.assert_not_called()
 
 
 def _lookup_ctx(n_chunks: int) -> MagicMock:
@@ -420,3 +419,44 @@ def test_server_advertises_the_capability_only_when_enabled():
         MagicMock(), experimental_transfer=(SKIP_APC_LOOKUP_CAPABILITY,)
     )
     assert SKIP_APC_LOOKUP_CAPABILITY in on.get_experimental()
+
+
+@requires_vllm
+def test_replacement_lookup_waits_for_the_stale_lock_release():
+    """The replacement lookup must not reach the server before the release.
+
+    ``FREE_LOOKUP_LOCKS`` reconstructs its range from session state that the
+    replacement's ``begin_lookup`` resets, and both RPCs share the normal
+    thread pool. Ordering them on the poll loop keeps that correct for any
+    ``max_cpu_workers`` without blocking vLLM's scheduler thread.
+    """
+    # First Party
+    from lmcache.integration.vllm.lmcache_mp_connector import LMCacheMPConnector
+
+    adapter = MagicMock()
+    adapter.lmcache_tokens_per_chunk = CHUNK_SIZE
+    adapter.maybe_submit_lookup_request.return_value = 0
+    adapter.check_lookup_result.return_value = None  # still pending after submit
+    connector = LMCacheMPConnector.__new__(LMCacheMPConnector)
+    connector.request_trackers = {}
+    connector.scheduler_adapter = adapter
+    connector._reserve_last_token_for_lookup = False
+    connector._hit_alignment_tokens = CHUNK_SIZE
+    connector._connector_stats = MagicMock()
+    connector.lazy_offload = False
+    connector._skip_covered_lookup = True
+
+    request = _FakeRequest(list(range(8 * CHUNK_SIZE)))
+    tracker = connector._get_or_create_request_tracker(request)
+    pending = MagicMock()
+    pending.query.return_value = False  # release still in flight
+    tracker.pending_lock_frees = {"u": pending}
+
+    assert connector.get_num_new_matched_tokens(request, 0) == (None, True)
+    adapter.maybe_submit_lookup_request.assert_not_called()
+
+    # Once it lands the gate clears and the replacement goes out.
+    pending.query.return_value = True
+    connector.get_num_new_matched_tokens(request, 0)
+    adapter.maybe_submit_lookup_request.assert_called_once()
+    assert tracker.pending_lock_frees == {}

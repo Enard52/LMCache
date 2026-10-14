@@ -1196,8 +1196,8 @@ class LMCacheMPSchedulerAdapter:
                 the IPC key.
 
         Returns:
-            Per-server-url release futures, empty when unhealthy. Only
-            ``free_lookup_locks_blocking`` awaits them.
+            Per-server-url release futures, empty when unhealthy. Callers that
+            must order a later request after the release poll these.
         """
         if not self.is_healthy:
             return {}
@@ -1215,39 +1215,6 @@ class LMCacheMPSchedulerAdapter:
             url: self.req_clients[url].free_lookup_locks(base_key, self.tp_size)
             for url in self._server_urls
         }
-
-    def free_lookup_locks_blocking(
-        self,
-        token_ids: list[int],
-        start: int,
-        end: int,
-        request_id: str,
-        cache_salt: str = "",
-        request_configs: dict[str, Any] | None = None,
-    ) -> None:
-        """Like ``free_lookup_locks``, but blocks until every server has acked.
-
-        The shrink path must release stale locks before submitting the
-        replacement lookup: both RPCs share the normal thread pool, so a
-        fire-and-forget release can land after the replacement's
-        ``begin_lookup``. Args mirror ``free_lookup_locks``.
-        """
-        futures = self.free_lookup_locks(
-            token_ids, start, end, request_id, cache_salt, request_configs
-        )
-        deadline = time.monotonic() + self._mq_timeout
-        for url, future in futures.items():
-            try:
-                future.result(timeout=max(0.0, deadline - time.monotonic()))
-            except TimeoutError:
-                logger.warning(
-                    "FREE_LOOKUP_LOCKS to %s did not complete within %ss; the "
-                    "covered-lookup re-lookup may race it.",
-                    url,
-                    self._mq_timeout,
-                )
-            except Exception:
-                logger.warning("FREE_LOOKUP_LOCKS to %s failed.", url, exc_info=True)
 
     def end_session(self, request_id: str) -> None:
         """

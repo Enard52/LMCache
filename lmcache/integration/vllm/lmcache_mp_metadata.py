@@ -84,6 +84,10 @@ class LMCacheMPRequestTracker:
     # Sticky: after a shrink, the request looks up the full prefix from token 0.
     covered_skip_disabled: bool = False
 
+    # Stale-lock releases issued by a shrink; the replacement lookup waits
+    # on them rather than blocking the scheduler thread.
+    pending_lock_frees: dict[str, Any] = field(default_factory=dict)
+
     mm_adjusted_prompt_ids: list[int] = field(default_factory=list)
 
     def __init__(self, request: "Request"):
@@ -102,6 +106,7 @@ class LMCacheMPRequestTracker:
         self.num_lmcache_hit_tokens = 0
         self.lookup_covered_tokens = 0
         self.covered_skip_disabled = False
+        self.pending_lock_frees = {}
         self.state = LMCacheMPRequestState.PREFETCHING
         self.mm_adjusted_prompt_ids = []
         mm_hashes, mm_positions = extract_mm_features(request)

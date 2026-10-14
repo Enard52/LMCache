@@ -1234,9 +1234,11 @@ class LMCacheMPConnector(KVConnectorBase_V1, SupportsHMA):
         """Fall back to a full lookup from token 0 when the APC hit shrank below
         the frozen covered boundary.
 
-        Frees the stale locks (blocking, so the re-lookup cannot race them) and
-        sets the sticky ``covered_skip_disabled``. Returns ``(None, True)`` to
-        make the scheduler re-poll, or ``None`` when no shrink occurred.
+        Releases the stale locks and sets the sticky ``covered_skip_disabled``.
+        The release futures are parked on the tracker: the replacement lookup
+        waits for them on a later poll rather than blocking here. Returns
+        ``(None, True)`` to make the scheduler re-poll, or ``None`` when no
+        shrink occurred.
         """
         if not self._skip_covered_lookup or tracker.lookup_covered_tokens <= 0:
             return None
@@ -1249,11 +1251,10 @@ class LMCacheMPConnector(KVConnectorBase_V1, SupportsHMA):
             tracker.num_vllm_hit_tokens,
             tracker.lookup_covered_tokens,
         )
-        # Blocking free of the stale [c0, ret) locks before the covered=0 re-lookup.
         cached = self.scheduler_adapter.check_lookup_result(request.request_id)
         hit_tokens = cached if cached is not None else 0
         if hit_tokens > 0:
-            self.scheduler_adapter.free_lookup_locks_blocking(
+            tracker.pending_lock_frees = self.scheduler_adapter.free_lookup_locks(
                 token_ids=tracker.get_token_ids(),
                 start=0,
                 end=hit_tokens,
@@ -1338,6 +1339,14 @@ class LMCacheMPConnector(KVConnectorBase_V1, SupportsHMA):
             tracker.lookup_covered_tokens = 0
             tracker.state = LMCacheMPRequestState.BYPASS_LMCACHE
             return 0, False
+
+        # A shrink released the stale locks asynchronously. The replacement
+        # lookup must not reach the server first: the release reconstructs its
+        # range from session state that ``begin_lookup`` resets.
+        if tracker.pending_lock_frees:
+            if not all(f.query() for f in tracker.pending_lock_frees.values()):
+                return None, True
+            tracker.pending_lock_frees = {}
 
         # Chunk-aligned APC-covered boundary (0 = off; stays 0 after a shrink).
         covered_chunks = 0
