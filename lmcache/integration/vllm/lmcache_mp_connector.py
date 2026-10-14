@@ -84,6 +84,7 @@ from lmcache.integration.vllm.utils import (
 )
 from lmcache.utils import CacheRemoveEvent
 from lmcache.utils import init_logger as lmcache_init_logger
+from lmcache.v1.multiprocess.custom_types import SKIP_APC_LOOKUP_CAPABILITY
 
 try:
     # First Party
@@ -623,13 +624,6 @@ class LMCacheMPConnector(KVConnectorBase_V1, SupportsHMA):
             )
         )
 
-        # skip_covered_lookup: skip lookup of the APC-covered prefix (default off).
-        self._skip_covered_lookup: bool = bool(
-            vllm_config.kv_transfer_config.get_from_extra_config(
-                "lmcache.mp.skip_covered_lookup", False
-            )
-        )
-
         # Multi-server: prefer lmcache.mp.server_urls (list or comma-separated
         # string) over the single-server lmcache.mp.host / lmcache.mp.port.
         server_urls_cfg = vllm_config.kv_transfer_config.get_from_extra_config(
@@ -742,6 +736,12 @@ class LMCacheMPConnector(KVConnectorBase_V1, SupportsHMA):
                 vllm_block_size=scheduler_block_size,
                 parallel_strategy=parallel_strategy,
                 extra_config=vllm_config.kv_transfer_config.kv_connector_extra_config,
+            )
+            # The server is the side that skips the lock and the prefetch, so
+            # it owns the policy; follow what it advertises rather than making
+            # operators set a matching flag here too.
+            self._skip_covered_lookup: bool = (
+                SKIP_APC_LOOKUP_CAPABILITY in self.scheduler_adapter.experimental
             )
             self.request_trackers: dict[str, LMCacheMPRequestTracker] = {}
             # Worker events aggregated per step, awaiting take_events().

@@ -47,7 +47,10 @@ from lmcache.v1.multiprocess.config import (
     parse_args_to_coordinator_config,
     parse_args_to_mp_server_config,
 )
-from lmcache.v1.multiprocess.custom_types import KV_EVENT_CAPABILITY
+from lmcache.v1.multiprocess.custom_types import (
+    KV_EVENT_CAPABILITY,
+    SKIP_APC_LOOKUP_CAPABILITY,
+)
 from lmcache.v1.multiprocess.engine_context import MPCacheServerContext
 from lmcache.v1.multiprocess.engine_module import EngineModule, InstanceLivenessTarget
 from lmcache.v1.multiprocess.ext_server_module import (
@@ -327,6 +330,8 @@ def _build_server_components(
     liveness_targets.append(kv_events)
     if kv_events.enabled:
         experimental_transfer.append(KV_EVENT_CAPABILITY)
+    if mp_config.skip_apc_lookup:
+        experimental_transfer.append(SKIP_APC_LOOKUP_CAPABILITY)
 
     blend_modules: list[EngineModule] = []
     if blend_module is not None:

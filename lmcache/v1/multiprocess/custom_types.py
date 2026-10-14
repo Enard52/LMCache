@@ -318,6 +318,10 @@ def get_customized_decoder(type: Any) -> msgspec.msgpack.Decoder:
     return msgspec.msgpack.Decoder(ext_hook=ext_hook, dec_hook=dec_hook, type=type)
 
 
+# Engines send a covered count only to servers that advertise this, so the two
+# sides cannot disagree about which prefix was skipped.
+SKIP_APC_LOOKUP_CAPABILITY = "skip_apc_lookup"
+
 # Subscribe only to advertising servers; older versions expose a polling API.
 KV_EVENT_CAPABILITY = "kv_event_stream"
 KV_EVENT_KIND_STORED = "stored"

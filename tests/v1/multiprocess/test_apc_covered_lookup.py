@@ -402,3 +402,26 @@ def test_server_ignores_covered_count_unless_enabled():
     on_ctx = _lookup_ctx(4)
     LookupModule(on_ctx, skip_apc_lookup=True).lookup(key, 1)
     on_ctx.storage_manager.touch_cached_keys.assert_called_once()
+
+
+def test_server_advertises_the_capability_only_when_enabled():
+    """``--skip-apc-lookup`` is published through the capability handshake.
+
+    The engine derives its own behavior from this string rather than from a
+    matching option of its own, so the advertisement is the contract: a
+    server that will not honor a covered count must not appear to.
+    """
+    # First Party
+    from lmcache.v1.multiprocess.config import MPServerConfig
+    from lmcache.v1.multiprocess.custom_types import SKIP_APC_LOOKUP_CAPABILITY
+    from lmcache.v1.multiprocess.modules.management import ManagementModule
+
+    assert MPServerConfig.skip_apc_lookup is False  # off unless asked for
+
+    off = ManagementModule(MagicMock(), experimental_transfer=())
+    assert SKIP_APC_LOOKUP_CAPABILITY not in off.get_experimental()
+
+    on = ManagementModule(
+        MagicMock(), experimental_transfer=(SKIP_APC_LOOKUP_CAPABILITY,)
+    )
+    assert SKIP_APC_LOOKUP_CAPABILITY in on.get_experimental()

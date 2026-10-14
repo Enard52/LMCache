@@ -10,17 +10,13 @@ from L2 into L1 — even though vLLM will never read them.
  \__ locked + prefetched for nothing __/
 ```
 
-Two gates, both default off: the server's `--skip-apc-lookup` decides whether
-to honor a covered count, and the engine's `lmcache.mp.skip_covered_lookup`
-decides whether to send one. The skip happens only when both are set, and any
-other combination behaves exactly as before.
-
-**The server owns the behavior** -- not locking and not prefetching are its
-work -- so it must be able to refuse. The two sides can disagree safely
-because the server clamps every release to the prefix *it* actually skipped,
-so the engine can always send the release RPC and let the server decide what
-it covers. An engine-side elision of that RPC, keyed on what the engine
-believed was skipped, is what would make disagreement unsafe; there is none.
+The server's `--skip-apc-lookup` (default off ⇒ identical to today) turns it
+on. **The server owns the flag** because the server is what skips: the lock
+and the prefetch are its work. It advertises `skip_apc_lookup` through the
+existing capability handshake and the connector derives its behavior from
+that, so there is nothing to set on the vLLM side and the two sides cannot
+disagree about which prefix was skipped — a server that ignored a count the
+engine had already acted on would leave read locks held.
 
 ## What changes
 
