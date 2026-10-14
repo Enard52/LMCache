@@ -737,9 +737,6 @@ class LMCacheMPConnector(KVConnectorBase_V1, SupportsHMA):
                 parallel_strategy=parallel_strategy,
                 extra_config=vllm_config.kv_transfer_config.kv_connector_extra_config,
             )
-            # The server is the side that skips the lock and the prefetch, so
-            # it owns the policy; follow what it advertises rather than making
-            # operators set a matching flag here too.
             self._skip_covered_lookup: bool = (
                 SKIP_APC_LOOKUP_CAPABILITY in self.scheduler_adapter.experimental
             )
